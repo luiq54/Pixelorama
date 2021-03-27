@@ -202,14 +202,6 @@ func create_palette_from_sprite() -> void:
 	var colors_from_optionbutton : OptionButton = palette_from_sprite_dialog.get_node("VBoxContainer/HBoxContainer/ColorsFromOptionButton")
 
 	var palette : Palette = Global.palettes[current_palette]
-	var pixels := []
-
-	if selection_checkbox.pressed and current_project.selected_pixels:
-		pixels = current_project.selected_pixels.duplicate()
-	else:
-		for x in current_project.size.x:
-			for y in current_project.size.y:
-				pixels.append(Vector2(x, y))
 
 	var cels := []
 	match colors_from_optionbutton.selected:
@@ -229,13 +221,16 @@ func create_palette_from_sprite() -> void:
 		cel_image.lock()
 		if cel_image.is_invisible():
 			continue
-		for i in pixels:
-			var color : Color = cel_image.get_pixelv(i)
-			if color.a > 0:
-				if !alpha_checkbox.pressed:
-					color.a = 1
-				if !palette.has_color(color):
-					palette.add_color(color)
+		for x in current_project.size.x:
+			for y in current_project.size.y:
+				if selection_checkbox.pressed and current_project.has_selection() and not current_project.selection_bitmap.get_bit(Vector2(x, y)):
+					continue
+				var color : Color = cel_image.get_pixel(x, y)
+				if color.a > 0:
+					if !alpha_checkbox.pressed:
+						color.a = 1
+					if !palette.has_color(color):
+						palette.add_color(color)
 		cel_image.unlock()
 
 	save_palette(current_palette, current_palette + ".json")
