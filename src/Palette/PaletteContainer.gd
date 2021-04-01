@@ -223,7 +223,7 @@ func create_palette_from_sprite() -> void:
 			continue
 		for x in current_project.size.x:
 			for y in current_project.size.y:
-				if selection_checkbox.pressed and current_project.has_selection() and not current_project.selection_bitmap.get_bit(Vector2(x, y)):
+				if selection_checkbox.pressed and current_project.has_selection and not current_project.selection_bitmap.get_bit(Vector2(x, y)):
 					continue
 				var color : Color = cel_image.get_pixel(x, y)
 				if color.a > 0:
