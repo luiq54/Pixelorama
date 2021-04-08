@@ -10,6 +10,14 @@ onready var sat_spinbox = $VBoxContainer/HBoxContainer/TextBoxes/Saturation
 onready var val_spinbox = $VBoxContainer/HBoxContainer/TextBoxes/Value
 
 
+var confirmed: bool = false
+func _about_to_show():
+	var sm : ShaderMaterial = ShaderMaterial.new()
+	sm.shader = load("res://src/Shaders/HSV.shader")
+	$VBoxContainer/Preview.set_material(sm)
+	._about_to_show()
+
+
 func set_nodes() -> void:
 	preview = $VBoxContainer/Preview
 	selection_checkbox = $VBoxContainer/AffectHBoxContainer/SelectionCheckBox
@@ -17,12 +25,26 @@ func set_nodes() -> void:
 
 
 func _confirmed() -> void:
+	confirmed = true
 	._confirmed()
 	reset()
 
 
 func commit_action(_cel : Image, _project : Project = Global.current_project) -> void:
-	DrawingAlgos.adjust_hsv(_cel, hue_slider.value, sat_slider.value, val_slider.value, selection_checkbox.pressed, _project)
+	#DrawingAlgos.adjust_hsv(_cel, hue_slider.value, sat_slider.value, val_slider.value, selection_checkbox.pressed, _project)
+	if !confirmed:
+		$VBoxContainer/Preview.material.set_shader_param("hue_shift_amount", hue_slider.value /360)
+		$VBoxContainer/Preview.material.set_shader_param("sat_shift_amount", sat_slider.value /100)
+		$VBoxContainer/Preview.material.set_shader_param("val_shift_amount", val_slider.value /100)
+	else:
+		var params = {
+			"hue_shift_amount": hue_slider.value /360,
+			"sat_shift_amount": sat_slider.value /100,
+			"val_shift_amount": val_slider.value /100,
+		}
+		var gen: ShaderImageEffect = ShaderImageEffect.new()
+		gen.generate_image(_cel, "res://src/Shaders/HSV.shader", params)
+		yield(gen, "done")
 
 
 func reset() -> void:
@@ -34,6 +56,7 @@ func reset() -> void:
 	sat_spinbox.value = 0
 	val_spinbox.value = 0
 	reconnect_signals()
+	confirmed = false
 
 
 func disconnect_signals() -> void:
