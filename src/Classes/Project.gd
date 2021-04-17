@@ -23,6 +23,8 @@ var x_symmetry_axis : SymmetryGuide
 var y_symmetry_axis : SymmetryGuide
 
 var selection_bitmap := BitMap.new()
+# This is useful for when the selection is outside of the canvas boundaries, on the left and/or above (negative coords)
+var selection_offset := Vector2.ZERO setget _selection_offset_changed
 var has_selection := false
 
 # For every camera (currently there are 3)
@@ -80,7 +82,6 @@ func commit_undo() -> void:
 	else:
 		undo_redo.undo()
 
-
 func commit_redo() -> void:
 	Global.control.redone = true
 	undo_redo.redo()
@@ -95,6 +96,12 @@ func selection_bitmap_changed() -> void:
 		image = bitmap_to_image(selection_bitmap)
 		image_texture.create_from_image(image, 0)
 	Global.canvas.selection.marching_ants_outline.texture = image_texture
+
+
+func _selection_offset_changed(value : Vector2) -> void:
+	selection_offset = value
+	Global.canvas.selection.marching_ants_outline.offset = selection_offset
+	Global.canvas.selection.update_on_zoom(Global.camera.zoom.x)
 
 
 func change_project() -> void:
@@ -153,9 +160,6 @@ func change_project() -> void:
 
 	self.animation_tags = animation_tags
 
-	# Change the selection rectangle
-#	Global.selection_rectangl.set_rect(selected_rect)
-
 	# Change the guides
 	for guide in Global.canvas.get_children():
 		if guide is Guide:
@@ -174,21 +178,12 @@ func change_project() -> void:
 	for brush in brushes:
 		Brushes.add_project_brush(brush)
 
-	var cameras = [Global.camera, Global.camera2, Global.camera_preview]
-	var i := 0
-	for camera in cameras:
-		camera.zoom = cameras_zoom[i]
-		camera.offset = cameras_offset[i]
-		i += 1
-	Global.zoom_level_label.text = str(round(100 / Global.camera.zoom.x)) + " %"
 	Global.canvas.update()
 	Global.canvas.grid.update()
-	Global.canvas.pixel_grid.update()
 	Global.transparent_checker._ready()
 	Global.animation_timeline.fps_spinbox.value = fps
 	Global.horizontal_ruler.update()
 	Global.vertical_ruler.update()
-	Global.preview_zoom_slider.value = -Global.camera_preview.zoom.x
 	Global.cursor_position_label.text = "[%s×%s]" % [size.x, size.y]
 
 	Global.window_title = "%s - Pixelorama %s" % [name, Global.current_version]
@@ -216,9 +211,19 @@ func change_project() -> void:
 	for j in Global.TileMode.values():
 		Global.tile_mode_submenu.set_item_checked(j, j == tile_mode)
 
+	# Change selection effect & bounding rectangle
+	Global.canvas.selection.marching_ants_outline.offset = selection_offset
 	selection_bitmap_changed()
 	Global.canvas.selection.big_bounding_rectangle = get_selection_rectangle()
+	Global.canvas.selection.big_bounding_rectangle.position += selection_offset
 	Global.canvas.selection.update()
+
+	var i := 0
+	for camera in [Global.camera, Global.camera2, Global.camera_preview]:
+		camera.zoom = cameras_zoom[i]
+		camera.offset = cameras_offset[i]
+		camera.zoom_changed()
+		i += 1
 
 
 func serialize() -> Dictionary:
@@ -374,7 +379,6 @@ func name_changed(value : String) -> void:
 func size_changed(value : Vector2) -> void:
 	size = value
 	update_tile_mode_rects()
-#	Global.selection_rectangl.set_rect(Global.selection_rectangl.get_rect())
 
 
 func frames_changed(value : Array) -> void:
@@ -596,13 +600,13 @@ func is_empty() -> bool:
 
 
 func can_pixel_get_drawn(pixel : Vector2) -> bool:
+	if pixel.x < 0 or pixel.y < 0 or pixel.x >= size.x or pixel.y >= size.y:
+		return false
 	var selection_position : Vector2 = Global.canvas.selection.big_bounding_rectangle.position
 	if selection_position.x < 0:
 		pixel.x -= selection_position.x
 	if selection_position.y < 0:
 		pixel.y -= selection_position.y
-	if pixel.x < 0 or pixel.y < 0 or pixel.x >= size.x or pixel.y >= size.y:
-		return false
 	if has_selection:
 		return selection_bitmap.get_bit(pixel)
 	else:
@@ -656,50 +660,72 @@ func get_selection_rectangle(bitmap : BitMap = selection_bitmap) -> Rect2:
 	return rect
 
 
-#func selection_is_rectangle(bitmap : BitMap = selection_bitmap) -> bool:
-#	var selection_rect = get_selection_rectangle(bitmap)
-#	return selection_rect == Global.canvas.selection.big_bounding_rectangle
-
-
-func move_bitmap_values(bitmap : BitMap, to : Vector2) -> void:
+func move_bitmap_values(bitmap : BitMap) -> void:
 	var selection_node = Global.canvas.selection
 	var selection_position : Vector2 = selection_node.big_bounding_rectangle.position
+	var selection_end : Vector2 = selection_node.big_bounding_rectangle.end
+
 	var image : Image = bitmap_to_image(bitmap)
 	var selection_rect := image.get_used_rect()
 	var smaller_image := image.get_rect(selection_rect)
 	image.lock()
 	image.fill(Color(0))
-	selection_rect.position += to
 	var dst := selection_position
-	var x_diff = selection_rect.end.x - size.x
-	var y_diff = selection_rect.end.y - size.y
+	var x_diff = selection_end.x - size.x
+	var y_diff = selection_end.y - size.y
 	var nw = max(size.x, size.x + x_diff)
 	var nh = max(size.y, size.y + y_diff)
 
 	if selection_position.x < 0:
 		nw -= selection_position.x
-		selection_node.marching_ants_outline.offset.x = selection_position.x
+		self.selection_offset.x = selection_position.x
 		dst.x = 0
+	else:
+		self.selection_offset.x = 0
 	if selection_position.y < 0:
 		nh -= selection_position.y
-		selection_node.marching_ants_outline.offset.y = selection_position.y
+		self.selection_offset.y = selection_position.y
 		dst.y = 0
+	else:
+		self.selection_offset.y = 0
+
+	if nw <= image.get_size().x:
+		nw = image.get_size().x
+	if nh <= image.get_size().y:
+		nh = image.get_size().y
 
 	image.crop(nw, nh)
-	image.blit_rect(smaller_image, Rect2(Vector2.ZERO, size), dst)
+	image.blit_rect(smaller_image, Rect2(Vector2.ZERO, Vector2(nw, nh)), dst)
 	bitmap.create_from_image_alpha(image)
 
 
-func resize_bitmap_values(bitmap : BitMap, new_size : Vector2) -> BitMap:
-	var new_bitmap := BitMap.new()
+func resize_bitmap_values(bitmap : BitMap, new_size : Vector2, flip_x : bool, flip_y : bool) -> BitMap:
 	var selection_node = Global.canvas.selection
 	var selection_position : Vector2 = selection_node.big_bounding_rectangle.position
+	var dst := selection_position
+	var new_bitmap_size := size
+	new_bitmap_size.x = max(size.x, abs(selection_position.x) + new_size.x)
+	new_bitmap_size.y = max(size.y, abs(selection_position.y) + new_size.y)
+	var new_bitmap := BitMap.new()
 	var image : Image = bitmap_to_image(bitmap)
 	var selection_rect := image.get_used_rect()
 	var smaller_image := image.get_rect(selection_rect)
+	if selection_position.x <= 0:
+		self.selection_offset.x = selection_position.x
+		dst.x = 0
+	if selection_position.y <= 0:
+		self.selection_offset.y = selection_position.y
+		dst.y = 0
 	image.lock()
 	image.fill(Color(0))
 	smaller_image.resize(new_size.x, new_size.y, Image.INTERPOLATE_NEAREST)
-	image.blit_rect(smaller_image, Rect2(Vector2.ZERO, size), selection_position)
+	if flip_x:
+		smaller_image.flip_x()
+	if flip_y:
+		smaller_image.flip_y()
+	if new_bitmap_size != size:
+		image.crop(new_bitmap_size.x, new_bitmap_size.y)
+	image.blit_rect(smaller_image, Rect2(Vector2.ZERO, new_bitmap_size), dst)
 	new_bitmap.create_from_image_alpha(image)
+
 	return new_bitmap
