@@ -495,3 +495,9 @@ func get_big_bounding_rectangle() -> Rect2:
 	var image : Image = project.bitmap_to_image(project.selection_bitmap)
 	rect = image.get_used_rect()
 	return rect
+
+func get_big_bounding_image() -> Image:
+	# Returns a image that contains the entire selection
+	var project : Project = Global.current_project
+	var image : Image = project.bitmap_to_image(project.selection_bitmap)
+	return image
